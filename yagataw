@@ -1,31 +1,42 @@
---[[ Checkpoint Teleporter — Simple UI
-   - Loop 0..8 pakai workspace.Checkpoints["i"]
-   - Toggle ON/OFF
-   - Minimize
-   - Interval default 0.5s (ubah di CONFIG)
---]]
+-- Checkpoint Teleporter (Simple UI, CoreGui-safe)
+-- Loop 0..8: workspace.Checkpoints["i"]
+-- Hotkey: RightShift untuk show/hide
 
------------------ CONFIG -----------------
+-- ===== CONFIG =====
 local START_INDEX = 0
 local END_INDEX   = 8
-local INTERVAL    = 0.5 -- detik
-local OFFSET_Y    = 4   -- biar nggak nancep ke part
-------------------------------------------
+local INTERVAL    = 0.5  -- detik antar teleport
+local OFFSET_Y    = 4    -- jarak naik biar nggak nancep ke part
+-- ==================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TS = game:GetService("TweenService")
+
 local LP = Players.LocalPlayer
+
+-- pilih parent GUI yang paling aman (executor/studio)
+local function getGuiParent()
+    local ok, ui = pcall(function()
+        if gethui then
+            local h = gethui()
+            if typeof(h) == "Instance" then return h end
+        end
+        return game:GetService("CoreGui")
+    end)
+    if ok and ui then return ui end
+
+    -- fallback ke PlayerGui
+    local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui")
+    return pg
+end
 
 local function getHRP()
     local char = LP.Character or LP.CharacterAdded:Wait()
     return char:WaitForChild("HumanoidRootPart")
 end
 
-local function getCheckpointFolder()
-    return workspace:WaitForChild("Checkpoints", 5)
-end
-
--- kalau item bukan BasePart (mis. Model), ambil part pertamanya
 local function ensurePart(inst)
     if not inst then return nil end
     if inst:IsA("BasePart") then return inst end
@@ -37,7 +48,7 @@ local function ensurePart(inst)
 end
 
 local function collectCheckpoints()
-    local f = getCheckpointFolder()
+    local f = workspace:FindFirstChild("Checkpoints")
     local list = {}
     if not f then return list end
     for i = START_INDEX, END_INDEX do
@@ -48,13 +59,14 @@ local function collectCheckpoints()
     return list
 end
 
------------------ UI SIMPLE -----------------
-local pg = LP:WaitForChild("PlayerGui")
+-- ===== UI (simple) =====
+local parentGui = getGuiParent()
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CP_Teleporter_Simple"
+gui.Name = "CP_Teleporter_Simple_Core"
 gui.ResetOnSpawn = false
-gui.Parent = pg
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = parentGui
 
 local frame = Instance.new("Frame")
 frame.Size = UDim2.fromOffset(220, 120)
@@ -108,11 +120,12 @@ toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
 toggle.Parent = frame
 Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
 
--- draggable via title
+-- draggable via title area
 do
     local dragging, p0, f0
     frame.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 and i.Position.Y - frame.AbsolutePosition.Y <= 40 then
+        local onTitle = (i.Position and (i.Position.Y - frame.AbsolutePosition.Y <= 40))
+        if i.UserInputType == Enum.UserInputType.MouseButton1 and onTitle then
             dragging, p0, f0 = true, i.Position, frame.Position
             i.Changed:Connect(function()
                 if i.UserInputState == Enum.UserInputState.End then dragging = false end
@@ -127,6 +140,7 @@ do
     end)
 end
 
+-- minimize
 local minimized = false
 minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
@@ -135,14 +149,17 @@ minimize.MouseButton1Click:Connect(function()
     minimize.Text = minimized and "+" or "—"
 end)
 
------------------ LOGIC -----------------
+-- hotkey show/hide (RightShift)
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        gui.Enabled = not gui.Enabled
+    end
+end)
+
+-- ===== LOGIC =====
 local active = false
 local cps = collectCheckpoints()
-
--- tampilkan mana yang keambil (opsional, log)
-print("[CP] terdeteksi:", table.concat((function()
-    local n={}; for _,p in ipairs(cps) do table.insert(n, p.Name) end; return n
-end)(), ", "))
 
 local function setToggleUI(on)
     if on then
@@ -159,13 +176,11 @@ end
 local function loopTeleport()
     local hrp = getHRP()
     while active and gui.Parent do
-        -- refresh kalau kosong / diganti map
         if #cps == 0 then cps = collectCheckpoints() end
-        for i = 1, #cps do
+        for idx = 1, #cps do
             if not active then break end
-            local part = cps[i]
+            local part = cps[idx]
             if not (part and part:IsDescendantOf(workspace)) then
-                -- kalau part-nya diganti/rename, refresh list
                 cps = collectCheckpoints()
                 break
             end
@@ -181,13 +196,15 @@ toggle.MouseButton1Click:Connect(function()
     active = not active
     setToggleUI(active)
     if active then
-        -- selalu re-collect agar pasti 0..8 terbaru
-        cps = collectCheckpoints()
+        cps = collectCheckpoints() -- refresh tiap mulai
         task.spawn(loopTeleport)
     end
 end)
 
--- kalau respawn, lanjut lagi
 LP.CharacterAdded:Connect(function()
     if active then task.delay(1, function() if active then task.spawn(loopTeleport) end end) end
 end)
+
+-- info kecil di output
+print("[CP TP] UI parent:", parentGui:GetFullName())
+print("[CP TP] Hotkey RightShift untuk show/hide. Loop", START_INDEX, "->", END_INDEX)
