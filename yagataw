@@ -5,7 +5,7 @@
 -- ===== CONFIG =====
 local START_INDEX = 0
 local END_INDEX   = 8
-local INTERVAL    = 0.5  -- detik antar teleport
+local INTERVAL    = 1.5  -- detik antar teleport
 local OFFSET_Y    = 4    -- jarak naik biar nggak nancep ke part
 -- ==================
 
