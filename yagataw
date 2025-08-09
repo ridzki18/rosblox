@@ -1,18 +1,19 @@
--- Checkpoint Teleporter (Simple UI, CoreGui-safe)
--- Loop 0..8: workspace.Checkpoints["i"]
+-- Checkpoint Teleporter (Simple UI, CoreGui-safe) — v3
+-- Loop 1..8: workspace.Checkpoints["i"]
+-- Delay TP: 2 detik
 -- Hotkey: RightShift untuk show/hide
+-- Tombol: Minimize (—) dan Close (X)
 
 -- ===== CONFIG =====
-local START_INDEX = 0
+local START_INDEX = 1
 local END_INDEX   = 8
-local INTERVAL    = 3  -- detik antar teleport
-local OFFSET_Y    = 4    -- jarak naik biar nggak nancep ke part
+local INTERVAL    = 2    -- detik antar teleport
+local OFFSET_Y    = 4    -- naik sedikit biar tidak nancep ke part
 -- ==================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
-local TS = game:GetService("TweenService")
 
 local LP = Players.LocalPlayer
 
@@ -37,6 +38,7 @@ local function getHRP()
     return char:WaitForChild("HumanoidRootPart")
 end
 
+-- kalau item bukan BasePart (mis. Model), ambil PrimaryPart atau part pertama di dalamnya
 local function ensurePart(inst)
     if not inst then return nil end
     if inst:IsA("BasePart") then return inst end
@@ -63,13 +65,13 @@ end
 local parentGui = getGuiParent()
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CP_Teleporter_Simple_Core"
+gui.Name = "CP_Teleporter_Simple_Core_v3"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = parentGui
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(220, 120)
+frame.Size = UDim2.fromOffset(240, 130)
 frame.Position = UDim2.new(0, 20, 0, 150)
 frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 frame.Parent = gui
@@ -80,12 +82,12 @@ stroke.Thickness = 1
 
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
-title.Size = UDim2.new(1, -40, 0, 28)
+title.Size = UDim2.new(1, -70, 0, 28)
 title.Position = UDim2.new(0, 10, 0, 6)
 title.Font = Enum.Font.GothamBold
 title.TextScaled = true
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "Checkpoint TP"
+title.Text = "Checkpoint TP (1-8)"
 title.TextColor3 = Color3.fromRGB(235, 235, 245)
 title.Parent = frame
 
@@ -98,9 +100,10 @@ task.spawn(function()
     end
 end)
 
+-- Tombol Minimize (—)
 local minimize = Instance.new("TextButton")
 minimize.Size = UDim2.fromOffset(26, 26)
-minimize.Position = UDim2.new(1, -32, 0, 7)
+minimize.Position = UDim2.new(1, -64, 0, 7)
 minimize.Text = "—"
 minimize.TextScaled = true
 minimize.Font = Enum.Font.GothamSemibold
@@ -109,9 +112,21 @@ minimize.TextColor3 = Color3.fromRGB(230, 230, 240)
 minimize.Parent = frame
 Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
+-- Tombol Close (X)
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.fromOffset(26, 26)
+closeBtn.Position = UDim2.new(1, -32, 0, 7)
+closeBtn.Text = "X"
+closeBtn.TextScaled = true
+closeBtn.Font = Enum.Font.GothamSemibold
+closeBtn.BackgroundColor3 = Color3.fromRGB(55, 40, 40)
+closeBtn.TextColor3 = Color3.fromRGB(255, 230, 230)
+closeBtn.Parent = frame
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
+
 local toggle = Instance.new("TextButton")
-toggle.Size = UDim2.new(1, -20, 0, 40)
-toggle.Position = UDim2.new(0, 10, 0, 50)
+toggle.Size = UDim2.new(1, -20, 0, 44)
+toggle.Position = UDim2.new(0, 10, 0, 60)
 toggle.Font = Enum.Font.GothamBlack
 toggle.TextScaled = true
 toggle.Text = "Teleport OFF"
@@ -145,14 +160,19 @@ local minimized = false
 minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
     toggle.Visible = not minimized
-    frame.Size = minimized and UDim2.fromOffset(220, 40) or UDim2.fromOffset(220, 120)
+    frame.Size = minimized and UDim2.fromOffset(240, 42) or UDim2.fromOffset(240, 130)
     minimize.Text = minimized and "+" or "—"
 end)
 
--- hotkey show/hide (RightShift)
+-- close (destroy UI)
+closeBtn.MouseButton1Click:Connect(function()
+    gui:Destroy()
+end)
+
+-- hotkey show/hide (RightShift) — hanya berfungsi jika GUI belum di-destroy
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
-    if input.KeyCode == Enum.KeyCode.RightShift then
+    if gui.Parent and input.KeyCode == Enum.KeyCode.RightShift then
         gui.Enabled = not gui.Enabled
     end
 end)
@@ -178,7 +198,7 @@ local function loopTeleport()
     while active and gui.Parent do
         if #cps == 0 then cps = collectCheckpoints() end
         for idx = 1, #cps do
-            if not active then break end
+            if not active or not gui.Parent then break end
             local part = cps[idx]
             if not (part and part:IsDescendantOf(workspace)) then
                 cps = collectCheckpoints()
@@ -202,9 +222,13 @@ toggle.MouseButton1Click:Connect(function()
 end)
 
 LP.CharacterAdded:Connect(function()
-    if active then task.delay(1, function() if active then task.spawn(loopTeleport) end end) end
+    if active and gui.Parent then
+        task.delay(1, function()
+            if active and gui.Parent then task.spawn(loopTeleport) end
+        end)
+    end
 end)
 
--- info kecil di output
-print("[CP TP] UI parent:", parentGui:GetFullName())
-print("[CP TP] Hotkey RightShift untuk show/hide. Loop", START_INDEX, "->", END_INDEX)
+-- info kecil
+print(string.format("[CP TP] UI parent: %s | Loop %d → %d | Interval %ss",
+    parentGui:GetFullName(), START_INDEX, END_INDEX, tostring(INTERVAL)))
