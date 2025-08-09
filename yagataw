@@ -1,11 +1,12 @@
--- Checkpoint Teleporter — versi super simple (langsung 1-8 tanpa deteksi)
--- Interval: 2 detik, Offset Y: 4
--- Tombol: Minimize (—) dan Close (X)
+-- Checkpoint Teleporter — FINAL (Auto Stage Detect + Simple UI)
+-- by u + chatgpt
 
-local START_INDEX = 1
-local END_INDEX   = 8
-local INTERVAL    = 2
-local OFFSET_Y    = 4
+-- ===== CONFIG =====
+local START_STAGE = 1     -- fallback start jika tidak ada stage value
+local END_STAGE   = 8     -- fallback end & juga batas atas auto-run
+local INTERVAL    = 2     -- detik antar aksi
+local OFFSET_Y    = 4     -- naik sedikit agar tidak nancep ke part
+-- ===================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -13,6 +14,7 @@ local UIS = game:GetService("UserInputService")
 
 local LP = Players.LocalPlayer
 
+-- GUI parent aman (executor/studio)
 local function getGuiParent()
     local ok, ui = pcall(function()
         if gethui then
@@ -30,17 +32,73 @@ local function getHRP()
     return char:WaitForChild("HumanoidRootPart")
 end
 
+-- cari BasePart dari instance (Part langsung / PrimaryPart / descendant pertama)
+local function ensurePart(inst)
+    if not inst then return nil end
+    if inst:IsA("BasePart") then return inst end
+    if inst:IsA("Model") and inst.PrimaryPart then return inst.PrimaryPart end
+    for _, d in ipairs(inst:GetDescendants()) do
+        if d:IsA("BasePart") then return d end
+    end
+    return nil
+end
+
+-- ====== Stage Detection ======
+local STAGE_KEYWORDS = { "stage", "checkpoint", "level" }
+
+local function isStageLikeName(name)
+    name = string.lower(tostring(name or ""))
+    for _, kw in ipairs(STAGE_KEYWORDS) do
+        if string.find(name, kw, 1, true) then return true end
+    end
+    return false
+end
+
+-- prioritas: leaderstats -> nilai lain di player
+local function findStageValueObj()
+    local function scan(container)
+        if not container then return nil end
+        for _, child in ipairs(container:GetDescendants()) do
+            if (child:IsA("IntValue") or child:IsA("NumberValue")) and isStageLikeName(child.Name) then
+                return child
+            end
+        end
+        return nil
+    end
+
+    -- 1) leaderstats
+    local ls = LP:FindFirstChild("leaderstats") or LP:FindFirstChildWhichIsA("Folder")
+    if ls then
+        local v = scan(ls)
+        if v then return v end
+    end
+
+    -- 2) langsung di player (atau anak-anaknya)
+    return scan(LP)
+end
+
+local function getCurrentStage()
+    local v = findStageValueObj()
+    if v then
+        local ok, value = pcall(function() return v.Value end)
+        if ok and typeof(value) == "number" then
+            return math.floor(value), v
+        end
+    end
+    return nil, nil
+end
+
 -- ===== UI =====
 local parentGui = getGuiParent()
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CP_Teleporter_Simple_NoDetect"
+gui.Name = "CP_TP_Final"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = parentGui
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(240, 130)
+frame.Size = UDim2.fromOffset(260, 140)
 frame.Position = UDim2.new(0, 20, 0, 150)
 frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 frame.Parent = gui
@@ -51,16 +109,16 @@ stroke.Thickness = 1
 
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
-title.Size = UDim2.new(1, -70, 0, 28)
+title.Size = UDim2.new(1, -90, 0, 28)
 title.Position = UDim2.new(0, 10, 0, 6)
 title.Font = Enum.Font.GothamBold
 title.TextScaled = true
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "Checkpoint TP (1-8)"
+title.Text = "Auto Stage TP (1-8)"
 title.TextColor3 = Color3.fromRGB(235, 235, 245)
 title.Parent = frame
 
--- rainbow text
+-- Hue anim pelan
 task.spawn(function()
     local t = 0
     while gui.Parent do
@@ -69,7 +127,7 @@ task.spawn(function()
     end
 end)
 
--- Minimize
+-- Minimize (—)
 local minimize = Instance.new("TextButton")
 minimize.Size = UDim2.fromOffset(26, 26)
 minimize.Position = UDim2.new(1, -64, 0, 7)
@@ -81,7 +139,7 @@ minimize.TextColor3 = Color3.fromRGB(230, 230, 240)
 minimize.Parent = frame
 Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
--- Close
+-- Close (X)
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.fromOffset(26, 26)
 closeBtn.Position = UDim2.new(1, -32, 0, 7)
@@ -95,7 +153,7 @@ Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
 -- Toggle
 local toggle = Instance.new("TextButton")
-toggle.Size = UDim2.new(1, -20, 0, 44)
+toggle.Size = UDim2.new(1, -20, 0, 50)
 toggle.Position = UDim2.new(0, 10, 0, 60)
 toggle.Font = Enum.Font.GothamBlack
 toggle.TextScaled = true
@@ -105,7 +163,7 @@ toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
 toggle.Parent = frame
 Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
 
--- Drag frame
+-- Draggable via title area
 do
     local dragging, p0, f0
     frame.InputBegan:Connect(function(i)
@@ -125,12 +183,12 @@ do
     end)
 end
 
--- Buttons
+-- Minimize & Close
 local minimized = false
 minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
     toggle.Visible = not minimized
-    frame.Size = minimized and UDim2.fromOffset(240, 42) or UDim2.fromOffset(240, 130)
+    frame.Size = minimized and UDim2.fromOffset(260, 42) or UDim2.fromOffset(260, 140)
     minimize.Text = minimized and "+" or "—"
 end)
 
@@ -138,6 +196,7 @@ closeBtn.MouseButton1Click:Connect(function()
     gui:Destroy()
 end)
 
+-- Hotkey RightShift: show/hide
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if gui.Parent and input.KeyCode == Enum.KeyCode.RightShift then
@@ -145,7 +204,7 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- ===== LOGIC =====
+-- ===== Teleport Logic =====
 local active = false
 
 local function setToggleUI(on)
@@ -160,27 +219,51 @@ local function setToggleUI(on)
     end
 end
 
-local function loopTeleport()
+-- Teleport ke checkpoint = nomor
+local function tpToCheckpoint(num)
+    local cfolder = workspace:FindFirstChild("Checkpoints")
+    if not cfolder then return false end
+    local node = cfolder:FindFirstChild(tostring(num), false) -- non-recursive sesuai struktur kamu
+    if not node then return false end
+    local part = ensurePart(node)
+    if not part then return false end
     local hrp = getHRP()
+    pcall(function()
+        hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, OFFSET_Y, 0))
+    end)
+    return true
+end
+
+-- Tunggu sampai stage berubah ke target (atau timeout)
+local function waitStageBecome(target, timeout)
+    local deadline = time() + (timeout or (INTERVAL + 1))
+    while time() < deadline do
+        local current = getCurrentStage()
+        if current and current >= target then
+            return true
+        end
+        task.wait(0.1)
+    end
+    return false
+end
+
+local function loopAutoStage()
     while active and gui.Parent do
-        for i = START_INDEX, END_INDEX do
-            if not active or not gui.Parent then break end
-            local cp = workspace.Checkpoints:FindFirstChild(tostring(i))
-            if cp and cp:IsA("BasePart") then
-                hrp.CFrame = CFrame.new(cp.Position + Vector3.new(0, OFFSET_Y, 0))
-            elseif cp then
-                -- kalau model, coba ambil PrimaryPart atau part pertama
-                local part = cp.PrimaryPart
-                if not part then
-                    for _, d in ipairs(cp:GetDescendants()) do
-                        if d:IsA("BasePart") then part = d break end
-                    end
-                end
-                if part then
-                    hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, OFFSET_Y, 0))
-                end
-            end
+        local currentStage = getCurrentStage()
+        if currentStage then
+            local nextStage = math.clamp(currentStage + 1, START_STAGE, END_STAGE)
+            -- kalau sudah di akhir, optionally berhenti; di sini kita tetap loop biar idempoten
+            tpToCheckpoint(nextStage)
+            -- tunggu server update stage, kalau tidak update, ya lanjut interval saja
+            waitStageBecome(nextStage, INTERVAL + 1)
             task.wait(INTERVAL)
+        else
+            -- Fallback sekuensial 1..8 kalau tidak ada stage value
+            for i = START_STAGE, END_STAGE do
+                if not active or not gui.Parent then break end
+                tpToCheckpoint(i)
+                task.wait(INTERVAL)
+            end
         end
     end
 end
@@ -189,14 +272,16 @@ toggle.MouseButton1Click:Connect(function()
     active = not active
     setToggleUI(active)
     if active then
-        task.spawn(loopTeleport)
+        task.spawn(loopAutoStage)
     end
 end)
 
 LP.CharacterAdded:Connect(function()
     if active and gui.Parent then
         task.delay(1, function()
-            if active and gui.Parent then task.spawn(loopTeleport) end
+            if active and gui.Parent then task.spawn(loopAutoStage) end
         end)
     end
 end)
+
+print("[Auto Stage TP] Ready. Deteksi stage otomatis; fallback 1-8. Interval:", INTERVAL, "s")
