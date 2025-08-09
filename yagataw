@@ -1,11 +1,11 @@
--- Checkpoint Teleporter — FINAL (Auto Stage Detect + Simple UI)
--- by u + chatgpt
+-- Auto Stage Teleporter — Loop-aware (reset ke 1 setelah finish/summit naik)
+-- by you + chatgpt
 
 -- ===== CONFIG =====
-local START_STAGE = 1     -- fallback start jika tidak ada stage value
-local END_STAGE   = 8     -- fallback end & juga batas atas auto-run
-local INTERVAL    = 2     -- detik antar aksi
-local OFFSET_Y    = 4     -- naik sedikit agar tidak nancep ke part
+local START_STAGE = 1
+local END_STAGE   = 8
+local INTERVAL    = 2   -- detik
+local OFFSET_Y    = 4
 -- ===================
 
 local Players = game:GetService("Players")
@@ -14,7 +14,7 @@ local UIS = game:GetService("UserInputService")
 
 local LP = Players.LocalPlayer
 
--- GUI parent aman (executor/studio)
+-- ===== GUI parent aman =====
 local function getGuiParent()
     local ok, ui = pcall(function()
         if gethui then
@@ -32,7 +32,7 @@ local function getHRP()
     return char:WaitForChild("HumanoidRootPart")
 end
 
--- cari BasePart dari instance (Part langsung / PrimaryPart / descendant pertama)
+-- ===== helpers =====
 local function ensurePart(inst)
     if not inst then return nil end
     if inst:IsA("BasePart") then return inst end
@@ -43,56 +43,65 @@ local function ensurePart(inst)
     return nil
 end
 
--- ====== Stage Detection ======
-local STAGE_KEYWORDS = { "stage", "checkpoint", "level" }
+local function tpToCheckpoint(num)
+    local cfolder = workspace:FindFirstChild("Checkpoints")
+    if not cfolder then return false end
+    local node = cfolder:FindFirstChild(tostring(num), false)
+    if not node then return false end
+    local part = ensurePart(node)
+    if not part then return false end
+    local hrp = getHRP()
+    pcall(function()
+        hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, OFFSET_Y, 0))
+    end)
+    return true
+end
 
-local function isStageLikeName(name)
+-- ===== Stage/Summit detection =====
+local STAGE_KEYS  = { "stage", "checkpoint", "level" }
+local SUMMIT_KEYS = { "summit" }
+
+local function hasKey(name, keys)
     name = string.lower(tostring(name or ""))
-    for _, kw in ipairs(STAGE_KEYWORDS) do
-        if string.find(name, kw, 1, true) then return true end
+    for _, k in ipairs(keys) do
+        if string.find(name, k, 1, true) then return true end
     end
     return false
 end
 
--- prioritas: leaderstats -> nilai lain di player
-local function findStageValueObj()
-    local function scan(container)
-        if not container then return nil end
-        for _, child in ipairs(container:GetDescendants()) do
-            if (child:IsA("IntValue") or child:IsA("NumberValue")) and isStageLikeName(child.Name) then
-                return child
+local function findNumberValue(keys)
+    local function scan(root)
+        if not root then return nil end
+        for _, v in ipairs(root:GetDescendants()) do
+            if (v:IsA("IntValue") or v:IsA("NumberValue")) and hasKey(v.Name, keys) then
+                return v
             end
         end
         return nil
     end
-
-    -- 1) leaderstats
-    local ls = LP:FindFirstChild("leaderstats") or LP:FindFirstChildWhichIsA("Folder")
+    local ls = LP:FindFirstChild("leaderstats")
     if ls then
         local v = scan(ls)
         if v then return v end
     end
-
-    -- 2) langsung di player (atau anak-anaknya)
     return scan(LP)
 end
 
-local function getCurrentStage()
-    local v = findStageValueObj()
-    if v then
-        local ok, value = pcall(function() return v.Value end)
-        if ok and typeof(value) == "number" then
-            return math.floor(value), v
-        end
-    end
-    return nil, nil
+local function getStageAndSummit()
+    local stageObj  = findNumberValue(STAGE_KEYS)
+    local summitObj = findNumberValue(SUMMIT_KEYS)
+    local stage = nil
+    local summit = nil
+    if stageObj then pcall(function() stage = tonumber(stageObj.Value) end) end
+    if summitObj then pcall(function() summit = tonumber(summitObj.Value) end) end
+    return stage, summit
 end
 
 -- ===== UI =====
 local parentGui = getGuiParent()
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CP_TP_Final"
+gui.Name = "CP_TP_LoopAware"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = parentGui
@@ -118,7 +127,6 @@ title.Text = "Auto Stage TP (1-8)"
 title.TextColor3 = Color3.fromRGB(235, 235, 245)
 title.Parent = frame
 
--- Hue anim pelan
 task.spawn(function()
     local t = 0
     while gui.Parent do
@@ -127,7 +135,6 @@ task.spawn(function()
     end
 end)
 
--- Minimize (—)
 local minimize = Instance.new("TextButton")
 minimize.Size = UDim2.fromOffset(26, 26)
 minimize.Position = UDim2.new(1, -64, 0, 7)
@@ -139,7 +146,6 @@ minimize.TextColor3 = Color3.fromRGB(230, 230, 240)
 minimize.Parent = frame
 Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
--- Close (X)
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.fromOffset(26, 26)
 closeBtn.Position = UDim2.new(1, -32, 0, 7)
@@ -151,7 +157,6 @@ closeBtn.TextColor3 = Color3.fromRGB(255, 230, 230)
 closeBtn.Parent = frame
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
--- Toggle
 local toggle = Instance.new("TextButton")
 toggle.Size = UDim2.new(1, -20, 0, 50)
 toggle.Position = UDim2.new(0, 10, 0, 60)
@@ -163,7 +168,7 @@ toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
 toggle.Parent = frame
 Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
 
--- Draggable via title area
+-- drag via title
 do
     local dragging, p0, f0
     frame.InputBegan:Connect(function(i)
@@ -183,7 +188,6 @@ do
     end)
 end
 
--- Minimize & Close
 local minimized = false
 minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
@@ -196,7 +200,6 @@ closeBtn.MouseButton1Click:Connect(function()
     gui:Destroy()
 end)
 
--- Hotkey RightShift: show/hide
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if gui.Parent and input.KeyCode == Enum.KeyCode.RightShift then
@@ -204,8 +207,9 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- ===== Teleport Logic =====
+-- ===== Logic: loop & reset awareness =====
 local active = false
+local lastSummit = nil
 
 local function setToggleUI(on)
     if on then
@@ -219,52 +223,58 @@ local function setToggleUI(on)
     end
 end
 
--- Teleport ke checkpoint = nomor
-local function tpToCheckpoint(num)
-    local cfolder = workspace:FindFirstChild("Checkpoints")
-    if not cfolder then return false end
-    local node = cfolder:FindFirstChild(tostring(num), false) -- non-recursive sesuai struktur kamu
-    if not node then return false end
-    local part = ensurePart(node)
-    if not part then return false end
-    local hrp = getHRP()
-    pcall(function()
-        hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, OFFSET_Y, 0))
-    end)
-    return true
-end
-
--- Tunggu sampai stage berubah ke target (atau timeout)
-local function waitStageBecome(target, timeout)
+-- tunggu update stage (opsional)
+local function waitStageAtLeast(target, timeout)
     local deadline = time() + (timeout or (INTERVAL + 1))
     while time() < deadline do
-        local current = getCurrentStage()
-        if current and current >= target then
-            return true
-        end
+        local s = select(1, getStageAndSummit())
+        if s and s >= target then return true end
         task.wait(0.1)
     end
     return false
 end
 
-local function loopAutoStage()
+local function loopAuto()
+    -- init summit awal (kalau ada)
+    local _, summit0 = getStageAndSummit()
+    if summit0 then lastSummit = summit0 end
+
     while active and gui.Parent do
-        local currentStage = getCurrentStage()
-        if currentStage then
-            local nextStage = math.clamp(currentStage + 1, START_STAGE, END_STAGE)
-            -- kalau sudah di akhir, optionally berhenti; di sini kita tetap loop biar idempoten
+        local stage, summit = getStageAndSummit()
+
+        -- kalau summit nambah, artinya baru selesai 1 putaran → start lagi dari 1
+        if summit and lastSummit and summit > lastSummit then
+            lastSummit = summit
+            tpToCheckpoint(1)
+            task.wait(INTERVAL)
+            goto continue
+        elseif summit and not lastSummit then
+            lastSummit = summit
+        end
+
+        if stage then
+            local nextStage
+            -- habis finish (stage=0) atau di/melewati akhir → kembali ke 1
+            if stage == 0 or stage >= END_STAGE then
+                nextStage = 1
+            else
+                nextStage = stage + 1
+            end
             tpToCheckpoint(nextStage)
-            -- tunggu server update stage, kalau tidak update, ya lanjut interval saja
-            waitStageBecome(nextStage, INTERVAL + 1)
+            -- kalau nextStage > stage, tunggu server naikin stage biar sinkron
+            if nextStage ~= 1 then
+                waitStageAtLeast(nextStage, INTERVAL + 1)
+            end
             task.wait(INTERVAL)
         else
-            -- Fallback sekuensial 1..8 kalau tidak ada stage value
+            -- fallback: 1..END_STAGE
             for i = START_STAGE, END_STAGE do
                 if not active or not gui.Parent then break end
                 tpToCheckpoint(i)
                 task.wait(INTERVAL)
             end
         end
+        ::continue::
     end
 end
 
@@ -272,16 +282,16 @@ toggle.MouseButton1Click:Connect(function()
     active = not active
     setToggleUI(active)
     if active then
-        task.spawn(loopAutoStage)
+        task.spawn(loopAuto)
     end
 end)
 
 LP.CharacterAdded:Connect(function()
     if active and gui.Parent then
         task.delay(1, function()
-            if active and gui.Parent then task.spawn(loopAutoStage) end
+            if active and gui.Parent then task.spawn(loopAuto) end
         end)
     end
 end)
 
-print("[Auto Stage TP] Ready. Deteksi stage otomatis; fallback 1-8. Interval:", INTERVAL, "s")
+print("[Auto Stage TP] Loop-aware ready. Interval:", INTERVAL, "s; range", START_STAGE, "→", END_STAGE)
