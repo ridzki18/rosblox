@@ -1,15 +1,11 @@
--- Checkpoint Teleporter (Simple UI, CoreGui-safe) — v3
--- Loop 1..8: workspace.Checkpoints["i"]
--- Delay TP: 2 detik
--- Hotkey: RightShift untuk show/hide
+-- Checkpoint Teleporter — versi super simple (langsung 1-8 tanpa deteksi)
+-- Interval: 2 detik, Offset Y: 4
 -- Tombol: Minimize (—) dan Close (X)
 
--- ===== CONFIG =====
 local START_INDEX = 1
 local END_INDEX   = 8
-local INTERVAL    = 2    -- detik antar teleport
-local OFFSET_Y    = 4    -- naik sedikit biar tidak nancep ke part
--- ==================
+local INTERVAL    = 2
+local OFFSET_Y    = 4
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,7 +13,6 @@ local UIS = game:GetService("UserInputService")
 
 local LP = Players.LocalPlayer
 
--- pilih parent GUI yang paling aman (executor/studio)
 local function getGuiParent()
     local ok, ui = pcall(function()
         if gethui then
@@ -27,10 +22,7 @@ local function getGuiParent()
         return game:GetService("CoreGui")
     end)
     if ok and ui then return ui end
-
-    -- fallback ke PlayerGui
-    local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui")
-    return pg
+    return LP:WaitForChild("PlayerGui")
 end
 
 local function getHRP()
@@ -38,34 +30,11 @@ local function getHRP()
     return char:WaitForChild("HumanoidRootPart")
 end
 
--- kalau item bukan BasePart (mis. Model), ambil PrimaryPart atau part pertama di dalamnya
-local function ensurePart(inst)
-    if not inst then return nil end
-    if inst:IsA("BasePart") then return inst end
-    if inst:IsA("Model") and inst.PrimaryPart then return inst.PrimaryPart end
-    for _, d in ipairs(inst:GetDescendants()) do
-        if d:IsA("BasePart") then return d end
-    end
-    return nil
-end
-
-local function collectCheckpoints()
-    local f = workspace:FindFirstChild("Checkpoints")
-    local list = {}
-    if not f then return list end
-    for i = START_INDEX, END_INDEX do
-        local node = f:FindFirstChild(tostring(i), false) -- non-recursive sesuai struktur kamu
-        local part = ensurePart(node)
-        if part then table.insert(list, part) end
-    end
-    return list
-end
-
--- ===== UI (simple) =====
+-- ===== UI =====
 local parentGui = getGuiParent()
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CP_Teleporter_Simple_Core_v3"
+gui.Name = "CP_Teleporter_Simple_NoDetect"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = parentGui
@@ -91,7 +60,7 @@ title.Text = "Checkpoint TP (1-8)"
 title.TextColor3 = Color3.fromRGB(235, 235, 245)
 title.Parent = frame
 
--- efek hue pelan
+-- rainbow text
 task.spawn(function()
     local t = 0
     while gui.Parent do
@@ -100,7 +69,7 @@ task.spawn(function()
     end
 end)
 
--- Tombol Minimize (—)
+-- Minimize
 local minimize = Instance.new("TextButton")
 minimize.Size = UDim2.fromOffset(26, 26)
 minimize.Position = UDim2.new(1, -64, 0, 7)
@@ -112,7 +81,7 @@ minimize.TextColor3 = Color3.fromRGB(230, 230, 240)
 minimize.Parent = frame
 Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
--- Tombol Close (X)
+-- Close
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.fromOffset(26, 26)
 closeBtn.Position = UDim2.new(1, -32, 0, 7)
@@ -124,6 +93,7 @@ closeBtn.TextColor3 = Color3.fromRGB(255, 230, 230)
 closeBtn.Parent = frame
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
+-- Toggle
 local toggle = Instance.new("TextButton")
 toggle.Size = UDim2.new(1, -20, 0, 44)
 toggle.Position = UDim2.new(0, 10, 0, 60)
@@ -135,7 +105,7 @@ toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
 toggle.Parent = frame
 Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
 
--- draggable via title area
+-- Drag frame
 do
     local dragging, p0, f0
     frame.InputBegan:Connect(function(i)
@@ -155,7 +125,7 @@ do
     end)
 end
 
--- minimize
+-- Buttons
 local minimized = false
 minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
@@ -164,12 +134,10 @@ minimize.MouseButton1Click:Connect(function()
     minimize.Text = minimized and "+" or "—"
 end)
 
--- close (destroy UI)
 closeBtn.MouseButton1Click:Connect(function()
     gui:Destroy()
 end)
 
--- hotkey show/hide (RightShift) — hanya berfungsi jika GUI belum di-destroy
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if gui.Parent and input.KeyCode == Enum.KeyCode.RightShift then
@@ -179,7 +147,6 @@ end)
 
 -- ===== LOGIC =====
 local active = false
-local cps = collectCheckpoints()
 
 local function setToggleUI(on)
     if on then
@@ -196,17 +163,23 @@ end
 local function loopTeleport()
     local hrp = getHRP()
     while active and gui.Parent do
-        if #cps == 0 then cps = collectCheckpoints() end
-        for idx = 1, #cps do
+        for i = START_INDEX, END_INDEX do
             if not active or not gui.Parent then break end
-            local part = cps[idx]
-            if not (part and part:IsDescendantOf(workspace)) then
-                cps = collectCheckpoints()
-                break
+            local cp = workspace.Checkpoints:FindFirstChild(tostring(i))
+            if cp and cp:IsA("BasePart") then
+                hrp.CFrame = CFrame.new(cp.Position + Vector3.new(0, OFFSET_Y, 0))
+            elseif cp then
+                -- kalau model, coba ambil PrimaryPart atau part pertama
+                local part = cp.PrimaryPart
+                if not part then
+                    for _, d in ipairs(cp:GetDescendants()) do
+                        if d:IsA("BasePart") then part = d break end
+                    end
+                end
+                if part then
+                    hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, OFFSET_Y, 0))
+                end
             end
-            pcall(function()
-                hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, OFFSET_Y, 0))
-            end)
             task.wait(INTERVAL)
         end
     end
@@ -216,7 +189,6 @@ toggle.MouseButton1Click:Connect(function()
     active = not active
     setToggleUI(active)
     if active then
-        cps = collectCheckpoints() -- refresh tiap mulai
         task.spawn(loopTeleport)
     end
 end)
@@ -228,7 +200,3 @@ LP.CharacterAdded:Connect(function()
         end)
     end
 end)
-
--- info kecil
-print(string.format("[CP TP] UI parent: %s | Loop %d → %d | Interval %ss",
-    parentGui:GetFullName(), START_INDEX, END_INDEX, tostring(INTERVAL)))
