@@ -1,10 +1,10 @@
--- Auto Stage Teleporter — Loop-aware (reset ke 1 setelah finish/summit naik)
+-- Auto Stage Teleporter — Loop-aware + UI-Always-Show
 -- by you + chatgpt
 
 -- ===== CONFIG =====
 local START_STAGE = 1
 local END_STAGE   = 8
-local INTERVAL    = 2   -- detik
+local INTERVAL    = 2    -- detik
 local OFFSET_Y    = 4
 -- ===================
 
@@ -14,25 +14,42 @@ local UIS = game:GetService("UserInputService")
 
 local LP = Players.LocalPlayer
 
--- ===== GUI parent aman =====
+-- ===== GUI PARENT (paling aman) =====
 local function getGuiParent()
-    local ok, ui = pcall(function()
+    -- urutan: gethui() -> CoreGui -> PlayerGui
+    local parent
+    local ok, res = pcall(function()
         if gethui then
             local h = gethui()
-            if typeof(h) == "Instance" then return h end
+            if typeof(h) == "Instance" then
+                return h
+            end
         end
         return game:GetService("CoreGui")
     end)
-    if ok and ui then return ui end
-    return LP:WaitForChild("PlayerGui")
+    if ok and res then parent = res end
+    if not parent then
+        -- Fallback PlayerGui (butuh LocalScript/Executor yang expose PlayerGui)
+        local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
+        parent = pg or game:GetService("CoreGui")
+    end
+    return parent
 end
 
+local function protectGuiIfPossible(gui)
+    -- beberapa executor butuh protect_gui agar tidak kehapus oleh anti-cheat
+    pcall(function()
+        if syn and syn.protect_gui then syn.protect_gui(gui) end
+        if protectgui then protectgui(gui) end
+    end)
+end
+
+-- ===== CHAR/TP HELPERS =====
 local function getHRP()
     local char = LP.Character or LP.CharacterAdded:Wait()
-    return char:WaitForChild("HumanoidRootPart")
+    return char:WaitForChild("Humanoid", 10) and char:WaitForChild("HumanoidRootPart", 10)
 end
 
--- ===== helpers =====
 local function ensurePart(inst)
     if not inst then return nil end
     if inst:IsA("BasePart") then return inst end
@@ -46,11 +63,12 @@ end
 local function tpToCheckpoint(num)
     local cfolder = workspace:FindFirstChild("Checkpoints")
     if not cfolder then return false end
-    local node = cfolder:FindFirstChild(tostring(num), false)
+    local node = cfolder:FindFirstChild(tostring(num))
     if not node then return false end
     local part = ensurePart(node)
     if not part then return false end
     local hrp = getHRP()
+    if not hrp then return false end
     pcall(function()
         hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, OFFSET_Y, 0))
     end)
@@ -90,9 +108,8 @@ end
 local function getStageAndSummit()
     local stageObj  = findNumberValue(STAGE_KEYS)
     local summitObj = findNumberValue(SUMMIT_KEYS)
-    local stage = nil
-    local summit = nil
-    if stageObj then pcall(function() stage = tonumber(stageObj.Value) end) end
+    local stage, summit = nil, nil
+    if stageObj  then pcall(function() stage  = tonumber(stageObj.Value)  end) end
     if summitObj then pcall(function() summit = tonumber(summitObj.Value) end) end
     return stage, summit
 end
@@ -101,9 +118,12 @@ end
 local parentGui = getGuiParent()
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CP_TP_LoopAware"
+gui.Name = "CP_TP_LoopAware_ALWAYS"
+gui.IgnoreGuiInset = false
+gui.Enabled = true
+gui.DisplayOrder = 1_000_000
 gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+protectGuiIfPossible(gui)
 gui.Parent = parentGui
 
 local frame = Instance.new("Frame")
@@ -118,7 +138,7 @@ stroke.Thickness = 1
 
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
-title.Size = UDim2.new(1, -90, 0, 28)
+title.Size = UDim2.new(1, -92, 0, 28)
 title.Position = UDim2.new(0, 10, 0, 6)
 title.Font = Enum.Font.GothamBold
 title.TextScaled = true
@@ -135,28 +155,31 @@ task.spawn(function()
     end
 end)
 
-local minimize = Instance.new("TextButton")
-minimize.Size = UDim2.fromOffset(26, 26)
-minimize.Position = UDim2.new(1, -64, 0, 7)
-minimize.Text = "—"
-minimize.TextScaled = true
-minimize.Font = Enum.Font.GothamSemibold
-minimize.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-minimize.TextColor3 = Color3.fromRGB(230, 230, 240)
-minimize.Parent = frame
-Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
+-- Minimize (—)
+local btnMin = Instance.new("TextButton")
+btnMin.Size = UDim2.fromOffset(26, 26)
+btnMin.Position = UDim2.new(1, -64, 0, 7)
+btnMin.Text = "—"
+btnMin.TextScaled = true
+btnMin.Font = Enum.Font.GothamSemibold
+btnMin.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+btnMin.TextColor3 = Color3.fromRGB(230, 230, 240)
+btnMin.Parent = frame
+Instance.new("UICorner", btnMin).CornerRadius = UDim.new(0, 8)
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.fromOffset(26, 26)
-closeBtn.Position = UDim2.new(1, -32, 0, 7)
-closeBtn.Text = "X"
-closeBtn.TextScaled = true
-closeBtn.Font = Enum.Font.GothamSemibold
-closeBtn.BackgroundColor3 = Color3.fromRGB(55, 40, 40)
-closeBtn.TextColor3 = Color3.fromRGB(255, 230, 230)
-closeBtn.Parent = frame
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
+-- Close (X)
+local btnClose = Instance.new("TextButton")
+btnClose.Size = UDim2.fromOffset(26, 26)
+btnClose.Position = UDim2.new(1, -32, 0, 7)
+btnClose.Text = "X"
+btnClose.TextScaled = true
+btnClose.Font = Enum.Font.GothamSemibold
+btnClose.BackgroundColor3 = Color3.fromRGB(55, 40, 40)
+btnClose.TextColor3 = Color3.fromRGB(255, 230, 230)
+btnClose.Parent = frame
+Instance.new("UICorner", btnClose).CornerRadius = UDim.new(0, 8)
 
+-- Toggle
 local toggle = Instance.new("TextButton")
 toggle.Size = UDim2.new(1, -20, 0, 50)
 toggle.Position = UDim2.new(0, 10, 0, 60)
@@ -168,7 +191,7 @@ toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
 toggle.Parent = frame
 Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
 
--- drag via title
+-- Draggable via title area
 do
     local dragging, p0, f0
     frame.InputBegan:Connect(function(i)
@@ -188,18 +211,20 @@ do
     end)
 end
 
+-- Minimize / Close
 local minimized = false
-minimize.MouseButton1Click:Connect(function()
+btnMin.MouseButton1Click:Connect(function()
     minimized = not minimized
     toggle.Visible = not minimized
     frame.Size = minimized and UDim2.fromOffset(260, 42) or UDim2.fromOffset(260, 140)
-    minimize.Text = minimized and "+" or "—"
+    btnMin.Text = minimized and "+" or "—"
 end)
 
-closeBtn.MouseButton1Click:Connect(function()
+btnClose.MouseButton1Click:Connect(function()
     gui:Destroy()
 end)
 
+-- Hotkey RightShift: show/hide
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if gui.Parent and input.KeyCode == Enum.KeyCode.RightShift then
@@ -207,7 +232,7 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- ===== Logic: loop & reset awareness =====
+-- ===== LOGIC (Loop + Reset aware) =====
 local active = false
 local lastSummit = nil
 
@@ -223,7 +248,6 @@ local function setToggleUI(on)
     end
 end
 
--- tunggu update stage (opsional)
 local function waitStageAtLeast(target, timeout)
     local deadline = time() + (timeout or (INTERVAL + 1))
     while time() < deadline do
@@ -235,14 +259,14 @@ local function waitStageAtLeast(target, timeout)
 end
 
 local function loopAuto()
-    -- init summit awal (kalau ada)
-    local _, summit0 = getStageAndSummit()
-    if summit0 then lastSummit = summit0 end
+    -- init summit awal
+    local _, s0 = getStageAndSummit()
+    if s0 then lastSummit = s0 end
 
     while active and gui.Parent do
         local stage, summit = getStageAndSummit()
 
-        -- kalau summit nambah, artinya baru selesai 1 putaran → start lagi dari 1
+        -- summit bertambah -> reset ke 1
         if summit and lastSummit and summit > lastSummit then
             lastSummit = summit
             tpToCheckpoint(1)
@@ -254,14 +278,12 @@ local function loopAuto()
 
         if stage then
             local nextStage
-            -- habis finish (stage=0) atau di/melewati akhir → kembali ke 1
             if stage == 0 or stage >= END_STAGE then
                 nextStage = 1
             else
                 nextStage = stage + 1
             end
             tpToCheckpoint(nextStage)
-            -- kalau nextStage > stage, tunggu server naikin stage biar sinkron
             if nextStage ~= 1 then
                 waitStageAtLeast(nextStage, INTERVAL + 1)
             end
@@ -294,4 +316,4 @@ LP.CharacterAdded:Connect(function()
     end
 end)
 
-print("[Auto Stage TP] Loop-aware ready. Interval:", INTERVAL, "s; range", START_STAGE, "→", END_STAGE)
+print("[Auto Stage TP] UI mounted at:", gui.Parent:GetFullName(), "| Interval:", INTERVAL, "s")
