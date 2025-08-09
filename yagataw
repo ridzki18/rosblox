@@ -1,31 +1,24 @@
---// Checkpoint Teleporter UI (LocalScript)
---// By: you + chatgpt :)
---// Fitur:
---// - UI halus (rounded, stroke, gradient)
---// - Tombol Minimize
---// - Toggle Auto Teleport (loop 0 -> 8)
---// - Input interval (detik) + Refresh daftar checkpoint
---// - Aman kalau ada checkpoint yang hilang/rename
+--// Checkpoint Teleporter UI (LocalScript) — v2 (recursive checkpoints)
+--// Perbaikan: cari BasePart di dalam Model/Folder, bukan cuma root part.
 
---===== Helpers =====--
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
 local LP = Players.LocalPlayer
 
-local function getCharacter()
+--=== Utils ===--
+local function getCharacterHRP()
     local char = LP.Character or LP.CharacterAdded:Wait()
     local hrp = char:WaitForChild("HumanoidRootPart")
-    return char, hrp
+    return hrp
 end
 
 local function safeNumber(text, default)
     local n = tonumber(text)
     if not n or n <= 0 then return default end
-    return math.clamp(n, 0.05, 5) -- interval 0.05s s/d 5s
+    return math.clamp(n, 0.05, 5)
 end
 
-local function getCheckpointFolder()
+local function getCheckpointsFolder()
     local ok, folder = pcall(function()
         return workspace:WaitForChild("Checkpoints", 5)
     end)
@@ -33,46 +26,58 @@ local function getCheckpointFolder()
     return nil
 end
 
+-- Cari BasePart dari sebuah instance (Model/Folder/BasePart)
+local function resolveTeleportPart(inst)
+    if not inst then return nil end
+    if inst:IsA("BasePart") then return inst end
+    if inst:IsA("Model") then
+        if inst.PrimaryPart then return inst.PrimaryPart end
+    end
+    -- cari BasePart pertama di descendants
+    for _, d in ipairs(inst:GetDescendants()) do
+        if d:IsA("BasePart") then
+            return d
+        end
+    end
+    return nil
+end
+
+-- Ambil daftar checkpoints 0..8 (bisa nested)
 local function collectCheckpoints()
-    local folder = getCheckpointFolder()
+    local folder = getCheckpointsFolder()
     local list = {}
     if not folder then return list end
-    -- Ambil 0..8 saja sesuai permintaan user
     for i = 0, 8 do
-        local inst = folder:FindFirstChild(tostring(i))
-        if inst and inst:IsA("BasePart") then
-            table.insert(list, inst)
+        -- true = recursive, supaya bisa nemu "0" di dalam model/folder
+        local inst = folder:FindFirstChild(tostring(i), true)
+        local part = resolveTeleportPart(inst)
+        if part then
+            table.insert(list, part)
         end
     end
     return list
 end
 
---===== UI =====--
+--=== UI ===--
 local pg = LP:WaitForChild("PlayerGui")
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CheckpointTeleporterUI"
+gui.Name = "CheckpointTeleporterUI_v2"
 gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = false
 gui.Parent = pg
 
 local frame = Instance.new("Frame")
-frame.Name = "Main"
 frame.Size = UDim2.fromOffset(300, 180)
 frame.Position = UDim2.new(0, 20, 0, 120)
 frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 frame.Parent = gui
-
-local corner = Instance.new("UICorner", frame)
-corner.CornerRadius = UDim.new(0, 14)
-
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
 local stroke = Instance.new("UIStroke", frame)
 stroke.Thickness = 1.3
 stroke.Transparency = 0.2
 stroke.Color = Color3.fromRGB(120, 120, 160)
 
 local titleBar = Instance.new("Frame")
-titleBar.Name = "TitleBar"
 titleBar.Size = UDim2.new(1, 0, 0, 34)
 titleBar.BackgroundTransparency = 1
 titleBar.Parent = frame
@@ -88,18 +93,15 @@ title.Text = "Checkpoint Teleporter"
 title.TextColor3 = Color3.fromRGB(235, 235, 245)
 title.Parent = titleBar
 
--- rainbow effect halus
 task.spawn(function()
     local t = 0
     while gui.Parent do
         t += RunService.RenderStepped:Wait()
-        local hue = (t * 0.08) % 1
-        title.TextColor3 = Color3.fromHSV(hue, 0.4, 1)
+        title.TextColor3 = Color3.fromHSV((t * 0.08) % 1, 0.4, 1)
     end
 end)
 
 local minimize = Instance.new("TextButton")
-minimize.Name = "Minimize"
 minimize.Size = UDim2.fromOffset(28, 28)
 minimize.Position = UDim2.new(1, -34, 0, 3)
 minimize.Text = "—"
@@ -111,7 +113,6 @@ minimize.Parent = titleBar
 Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
 local content = Instance.new("Frame")
-content.Name = "Content"
 content.Size = UDim2.new(1, -20, 1, -50)
 content.Position = UDim2.new(0, 10, 0, 44)
 content.BackgroundTransparency = 1
@@ -120,7 +121,6 @@ content.Parent = frame
 local intervalLabel = Instance.new("TextLabel")
 intervalLabel.BackgroundTransparency = 1
 intervalLabel.Size = UDim2.new(0, 120, 0, 22)
-intervalLabel.Position = UDim2.new(0, 0, 0, 0)
 intervalLabel.Font = Enum.Font.Gotham
 intervalLabel.TextScaled = true
 intervalLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -186,11 +186,11 @@ toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
 toggle.Parent = content
 Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
 
--- Draggable frame
+-- Drag window
 do
     local dragging, dragStart, startPos
     titleBar.InputBegan:Connect(function(input)
-        if input.UserInputType.Name == "MouseButton1" or input.UserInputType.Name == "Touch" then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = frame.Position
@@ -200,14 +200,14 @@ do
         end
     end)
     titleBar.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType.Name == "MouseMovement" then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local d = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
         end
     end)
 end
 
--- Minimize behavior
+-- Minimize
 local minimized = false
 minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
@@ -216,33 +216,23 @@ minimize.MouseButton1Click:Connect(function()
     minimize.Text = minimized and "+" or "—"
 end)
 
---===== Teleport Logic =====--
+--=== Teleport Logic ===--
 local active = false
-local teleportThread = nil
 local checkpoints = {}
-
-local function updateListLabel()
-    if #checkpoints == 0 then
-        listBox.Text = "Tidak ada (pastikan workspace.Checkpoints berisi 0..8 dan merupakan BasePart)."
-        return
-    end
-    local names = {}
-    for _, cp in ipairs(checkpoints) do
-        table.insert(names, cp.Name)
-    end
-    listBox.Text = table.concat(names, ", ")
-end
 
 local function refreshCheckpoints()
     checkpoints = collectCheckpoints()
-    updateListLabel()
+    if #checkpoints == 0 then
+        listBox.Text = "Tidak ada (cari 0..8, recursive)."
+    else
+        local names = {}
+        for _, p in ipairs(checkpoints) do table.insert(names, p.Parent and p.Parent.Name or p.Name) end
+        listBox.Text = table.concat(names, ", ")
+    end
 end
 
 refreshCheckpoints()
-
-refresh.MouseButton1Click:Connect(function()
-    refreshCheckpoints()
-end)
+refresh.MouseButton1Click:Connect(refreshCheckpoints)
 
 local function setToggleUI(on)
     if on then
@@ -257,24 +247,20 @@ local function setToggleUI(on)
 end
 
 local function teleportLoop()
-    local _, hrp = getCharacter()
     while active and gui.Parent do
-        if #checkpoints == 0 then
-            refreshCheckpoints()
-        end
+        if #checkpoints == 0 then refreshCheckpoints() end
         local interval = safeNumber(intervalBox.Text, 0.5)
-        for _, cp in ipairs(checkpoints) do
+        for _, part in ipairs(checkpoints) do
             if not active then break end
-            if cp and cp:IsDescendantOf(workspace) and cp:IsA("BasePart") then
-                -- offset sedikit biar nggak nyangkut di part
-                local pos = cp.Position + Vector3.new(0, 4, 0)
-                pcall(function()
-                    hrp.CFrame = CFrame.new(pos)
-                end)
+            -- resolve ulang (kalau part pindah/di-replace)
+            local validPart = resolveTeleportPart(part) or resolveTeleportPart(part.Parent)
+            if validPart and validPart:IsDescendantOf(workspace) then
+                local hrp = getCharacterHRP()
+                local pos = validPart.Position + Vector3.new(0, 4, 0)
+                pcall(function() hrp.CFrame = CFrame.new(pos) end)
             end
             task.wait(interval)
         end
-        -- Ulang dari 0 lagi selama toggle masih ON
     end
 end
 
@@ -282,23 +268,14 @@ toggle.MouseButton1Click:Connect(function()
     active = not active
     setToggleUI(active)
     if active then
-        if not teleportThread or coroutine.status(teleportThread) == "dead" then
-            teleportThread = coroutine.create(teleportLoop)
-        end
-        coroutine.resume(teleportThread)
+        task.spawn(teleportLoop)
     end
 end)
 
--- Reacquire HRP jika respawn
 LP.CharacterAdded:Connect(function()
     if active then
-        -- kasih waktu spawn beres
-        task.wait(1)
-        if active then
-            if not teleportThread or coroutine.status(teleportThread) == "dead" then
-                teleportThread = coroutine.create(teleportLoop)
-            end
-            coroutine.resume(teleportThread)
-        end
+        task.delay(1, function()
+            if active then task.spawn(teleportLoop) end
+        end)
     end
 end)
