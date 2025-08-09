@@ -1,4 +1,4 @@
--- Auto Stage Teleporter — Loop-aware + UI-Always-Show
+-- Auto Stage Teleporter — Mobile UI (Hide/Show button), Loop-aware
 -- by you + chatgpt
 
 -- ===== CONFIG =====
@@ -10,26 +10,21 @@ local OFFSET_Y    = 4
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 
 local LP = Players.LocalPlayer
 
 -- ===== GUI PARENT (paling aman) =====
 local function getGuiParent()
-    -- urutan: gethui() -> CoreGui -> PlayerGui
     local parent
     local ok, res = pcall(function()
         if gethui then
             local h = gethui()
-            if typeof(h) == "Instance" then
-                return h
-            end
+            if typeof(h) == "Instance" then return h end
         end
         return game:GetService("CoreGui")
     end)
     if ok and res then parent = res end
     if not parent then
-        -- Fallback PlayerGui (butuh LocalScript/Executor yang expose PlayerGui)
         local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
         parent = pg or game:GetService("CoreGui")
     end
@@ -37,7 +32,6 @@ local function getGuiParent()
 end
 
 local function protectGuiIfPossible(gui)
-    -- beberapa executor butuh protect_gui agar tidak kehapus oleh anti-cheat
     pcall(function()
         if syn and syn.protect_gui then syn.protect_gui(gui) end
         if protectgui then protectgui(gui) end
@@ -47,7 +41,7 @@ end
 -- ===== CHAR/TP HELPERS =====
 local function getHRP()
     local char = LP.Character or LP.CharacterAdded:Wait()
-    return char:WaitForChild("Humanoid", 10) and char:WaitForChild("HumanoidRootPart", 10)
+    return char:WaitForChild("HumanoidRootPart", 10)
 end
 
 local function ensurePart(inst)
@@ -118,7 +112,7 @@ end
 local parentGui = getGuiParent()
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "CP_TP_LoopAware_ALWAYS"
+gui.Name = "CP_TP_Mobile"
 gui.IgnoreGuiInset = false
 gui.Enabled = true
 gui.DisplayOrder = 1_000_000
@@ -126,20 +120,21 @@ gui.ResetOnSpawn = false
 protectGuiIfPossible(gui)
 gui.Parent = parentGui
 
+-- panel utama
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(260, 140)
+frame.Size = UDim2.fromOffset(280, 150)
 frame.Position = UDim2.new(0, 20, 0, 150)
 frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 frame.Parent = gui
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 local stroke = Instance.new("UIStroke", frame)
 stroke.Color = Color3.fromRGB(120, 120, 160)
 stroke.Thickness = 1
 
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
-title.Size = UDim2.new(1, -92, 0, 28)
-title.Position = UDim2.new(0, 10, 0, 6)
+title.Size = UDim2.new(1, -120, 0, 30)
+title.Position = UDim2.new(0, 12, 0, 6)
 title.Font = Enum.Font.GothamBold
 title.TextScaled = true
 title.TextXAlignment = Enum.TextXAlignment.Left
@@ -147,6 +142,7 @@ title.Text = "Auto Stage TP (1-8)"
 title.TextColor3 = Color3.fromRGB(235, 235, 245)
 title.Parent = frame
 
+-- rainbow text
 task.spawn(function()
     local t = 0
     while gui.Parent do
@@ -155,10 +151,10 @@ task.spawn(function()
     end
 end)
 
--- Minimize (—)
+-- tombol header: Minimize, Hide, Close
 local btnMin = Instance.new("TextButton")
-btnMin.Size = UDim2.fromOffset(26, 26)
-btnMin.Position = UDim2.new(1, -64, 0, 7)
+btnMin.Size = UDim2.fromOffset(28, 28)
+btnMin.Position = UDim2.new(1, -92, 0, 7)
 btnMin.Text = "—"
 btnMin.TextScaled = true
 btnMin.Font = Enum.Font.GothamSemibold
@@ -167,10 +163,20 @@ btnMin.TextColor3 = Color3.fromRGB(230, 230, 240)
 btnMin.Parent = frame
 Instance.new("UICorner", btnMin).CornerRadius = UDim.new(0, 8)
 
--- Close (X)
+local btnHide = Instance.new("TextButton")
+btnHide.Size = UDim2.fromOffset(28, 28)
+btnHide.Position = UDim2.new(1, -60, 0, 7)
+btnHide.Text = "▢"
+btnHide.TextScaled = true
+btnHide.Font = Enum.Font.GothamSemibold
+btnHide.BackgroundColor3 = Color3.fromRGB(40, 55, 40)
+btnHide.TextColor3 = Color3.fromRGB(230, 255, 230)
+btnHide.Parent = frame
+Instance.new("UICorner", btnHide).CornerRadius = UDim.new(0, 8)
+
 local btnClose = Instance.new("TextButton")
-btnClose.Size = UDim2.fromOffset(26, 26)
-btnClose.Position = UDim2.new(1, -32, 0, 7)
+btnClose.Size = UDim2.fromOffset(28, 28)
+btnClose.Position = UDim2.new(1, -28, 0, 7)
 btnClose.Text = "X"
 btnClose.TextScaled = true
 btnClose.Font = Enum.Font.GothamSemibold
@@ -179,23 +185,22 @@ btnClose.TextColor3 = Color3.fromRGB(255, 230, 230)
 btnClose.Parent = frame
 Instance.new("UICorner", btnClose).CornerRadius = UDim.new(0, 8)
 
--- Toggle
 local toggle = Instance.new("TextButton")
-toggle.Size = UDim2.new(1, -20, 0, 50)
-toggle.Position = UDim2.new(0, 10, 0, 60)
+toggle.Size = UDim2.new(1, -24, 0, 60)
+toggle.Position = UDim2.new(0, 12, 0, 64)
 toggle.Font = Enum.Font.GothamBlack
 toggle.TextScaled = true
 toggle.Text = "Teleport OFF"
 toggle.BackgroundColor3 = Color3.fromRGB(65, 30, 30)
 toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
 toggle.Parent = frame
-Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 12)
 
--- Draggable via title area
+-- drag panel (drag area = bar atas)
 do
     local dragging, p0, f0
     frame.InputBegan:Connect(function(i)
-        local onTitle = (i.Position and (i.Position.Y - frame.AbsolutePosition.Y <= 40))
+        local onTitle = (i.Position and (i.Position.Y - frame.AbsolutePosition.Y <= 42))
         if i.UserInputType == Enum.UserInputType.MouseButton1 and onTitle then
             dragging, p0, f0 = true, i.Position, frame.Position
             i.Changed:Connect(function()
@@ -211,25 +216,63 @@ do
     end)
 end
 
--- Minimize / Close
+-- tombol "Show" kecil saat panel di-hide (draggable juga)
+local showBtn = Instance.new("TextButton")
+showBtn.Name = "ShowButton"
+showBtn.Size = UDim2.fromOffset(48, 48)
+showBtn.Position = UDim2.new(0, 20, 0, 120)
+showBtn.Text = "Show"
+showBtn.TextScaled = true
+showBtn.Font = Enum.Font.GothamSemibold
+showBtn.BackgroundColor3 = Color3.fromRGB(40, 80, 55)
+showBtn.TextColor3 = Color3.fromRGB(230, 255, 230)
+showBtn.Visible = false
+showBtn.Parent = gui
+Instance.new("UICorner", showBtn).CornerRadius = UDim.new(1, 0)
+local showStroke = Instance.new("UIStroke", showBtn)
+showStroke.Color = Color3.fromRGB(110, 170, 120)
+showStroke.Thickness = 1
+
+-- drag showBtn
+do
+    local dragging, p0, f0
+    showBtn.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging, p0, f0 = true, i.Position, showBtn.Position
+            i.Changed:Connect(function()
+                if i.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    showBtn.InputChanged:Connect(function(i)
+        if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local d = i.Position - p0
+            showBtn.Position = UDim2.new(f0.X.Scale, f0.X.Offset + d.X, f0.Y.Scale, f0.Y.Offset + d.Y)
+        end
+    end)
+end
+
+-- minimize/hide/close
 local minimized = false
 btnMin.MouseButton1Click:Connect(function()
     minimized = not minimized
     toggle.Visible = not minimized
-    frame.Size = minimized and UDim2.fromOffset(260, 42) or UDim2.fromOffset(260, 140)
+    frame.Size = minimized and UDim2.fromOffset(280, 48) or UDim2.fromOffset(280, 150)
     btnMin.Text = minimized and "+" or "—"
+end)
+
+btnHide.MouseButton1Click:Connect(function()
+    frame.Visible = false
+    showBtn.Visible = true
+end)
+
+showBtn.MouseButton1Click:Connect(function()
+    frame.Visible = true
+    showBtn.Visible = false
 end)
 
 btnClose.MouseButton1Click:Connect(function()
     gui:Destroy()
-end)
-
--- Hotkey RightShift: show/hide
-UIS.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if gui.Parent and input.KeyCode == Enum.KeyCode.RightShift then
-        gui.Enabled = not gui.Enabled
-    end
 end)
 
 -- ===== LOGIC (Loop + Reset aware) =====
@@ -266,7 +309,7 @@ local function loopAuto()
     while active and gui.Parent do
         local stage, summit = getStageAndSummit()
 
-        -- summit bertambah -> reset ke 1
+        -- summit naik -> reset ke 1
         if summit and lastSummit and summit > lastSummit then
             lastSummit = summit
             tpToCheckpoint(1)
@@ -316,4 +359,4 @@ LP.CharacterAdded:Connect(function()
     end
 end)
 
-print("[Auto Stage TP] UI mounted at:", gui.Parent:GetFullName(), "| Interval:", INTERVAL, "s")
+print("[Auto Stage TP Mobile] UI mounted at:", gui.Parent:GetFullName(), "| Interval:", INTERVAL, "s")
