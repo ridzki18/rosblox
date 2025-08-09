@@ -1,0 +1,304 @@
+--// Checkpoint Teleporter UI (LocalScript)
+--// By: you + chatgpt :)
+--// Fitur:
+--// - UI halus (rounded, stroke, gradient)
+--// - Tombol Minimize
+--// - Toggle Auto Teleport (loop 0 -> 8)
+--// - Input interval (detik) + Refresh daftar checkpoint
+--// - Aman kalau ada checkpoint yang hilang/rename
+
+--===== Helpers =====--
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local LP = Players.LocalPlayer
+
+local function getCharacter()
+    local char = LP.Character or LP.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+    return char, hrp
+end
+
+local function safeNumber(text, default)
+    local n = tonumber(text)
+    if not n or n <= 0 then return default end
+    return math.clamp(n, 0.05, 5) -- interval 0.05s s/d 5s
+end
+
+local function getCheckpointFolder()
+    local ok, folder = pcall(function()
+        return workspace:WaitForChild("Checkpoints", 5)
+    end)
+    if ok and folder then return folder end
+    return nil
+end
+
+local function collectCheckpoints()
+    local folder = getCheckpointFolder()
+    local list = {}
+    if not folder then return list end
+    -- Ambil 0..8 saja sesuai permintaan user
+    for i = 0, 8 do
+        local inst = folder:FindFirstChild(tostring(i))
+        if inst and inst:IsA("BasePart") then
+            table.insert(list, inst)
+        end
+    end
+    return list
+end
+
+--===== UI =====--
+local pg = LP:WaitForChild("PlayerGui")
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "CheckpointTeleporterUI"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = false
+gui.Parent = pg
+
+local frame = Instance.new("Frame")
+frame.Name = "Main"
+frame.Size = UDim2.fromOffset(300, 180)
+frame.Position = UDim2.new(0, 20, 0, 120)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+frame.Parent = gui
+
+local corner = Instance.new("UICorner", frame)
+corner.CornerRadius = UDim.new(0, 14)
+
+local stroke = Instance.new("UIStroke", frame)
+stroke.Thickness = 1.3
+stroke.Transparency = 0.2
+stroke.Color = Color3.fromRGB(120, 120, 160)
+
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 34)
+titleBar.BackgroundTransparency = 1
+titleBar.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Size = UDim2.new(1, -70, 1, 0)
+title.Position = UDim2.new(0, 12, 0, 0)
+title.Font = Enum.Font.GothamBold
+title.TextScaled = true
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "Checkpoint Teleporter"
+title.TextColor3 = Color3.fromRGB(235, 235, 245)
+title.Parent = titleBar
+
+-- rainbow effect halus
+task.spawn(function()
+    local t = 0
+    while gui.Parent do
+        t += RunService.RenderStepped:Wait()
+        local hue = (t * 0.08) % 1
+        title.TextColor3 = Color3.fromHSV(hue, 0.4, 1)
+    end
+end)
+
+local minimize = Instance.new("TextButton")
+minimize.Name = "Minimize"
+minimize.Size = UDim2.fromOffset(28, 28)
+minimize.Position = UDim2.new(1, -34, 0, 3)
+minimize.Text = "—"
+minimize.TextScaled = true
+minimize.Font = Enum.Font.GothamSemibold
+minimize.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+minimize.TextColor3 = Color3.fromRGB(220, 220, 230)
+minimize.Parent = titleBar
+Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
+
+local content = Instance.new("Frame")
+content.Name = "Content"
+content.Size = UDim2.new(1, -20, 1, -50)
+content.Position = UDim2.new(0, 10, 0, 44)
+content.BackgroundTransparency = 1
+content.Parent = frame
+
+local intervalLabel = Instance.new("TextLabel")
+intervalLabel.BackgroundTransparency = 1
+intervalLabel.Size = UDim2.new(0, 120, 0, 22)
+intervalLabel.Position = UDim2.new(0, 0, 0, 0)
+intervalLabel.Font = Enum.Font.Gotham
+intervalLabel.TextScaled = true
+intervalLabel.TextXAlignment = Enum.TextXAlignment.Left
+intervalLabel.Text = "Interval (s)"
+intervalLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+intervalLabel.Parent = content
+
+local intervalBox = Instance.new("TextBox")
+intervalBox.Size = UDim2.fromOffset(70, 26)
+intervalBox.Position = UDim2.new(0, 130, 0, 0)
+intervalBox.Font = Enum.Font.GothamSemibold
+intervalBox.TextScaled = true
+intervalBox.Text = "0.5"
+intervalBox.PlaceholderText = "0.5"
+intervalBox.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+intervalBox.TextColor3 = Color3.fromRGB(240, 240, 250)
+intervalBox.Parent = content
+Instance.new("UICorner", intervalBox).CornerRadius = UDim.new(0, 8)
+
+local refresh = Instance.new("TextButton")
+refresh.Size = UDim2.fromOffset(90, 28)
+refresh.Position = UDim2.new(0, 210, 0, 0)
+refresh.Font = Enum.Font.GothamSemibold
+refresh.TextScaled = true
+refresh.Text = "Refresh"
+refresh.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
+refresh.TextColor3 = Color3.fromRGB(230, 230, 240)
+refresh.Parent = content
+Instance.new("UICorner", refresh).CornerRadius = UDim.new(0, 8)
+
+local listLabel = Instance.new("TextLabel")
+listLabel.BackgroundTransparency = 1
+listLabel.Size = UDim2.new(1, 0, 0, 22)
+listLabel.Position = UDim2.new(0, 0, 0, 36)
+listLabel.Font = Enum.Font.Gotham
+listLabel.TextScaled = true
+listLabel.TextXAlignment = Enum.TextXAlignment.Left
+listLabel.Text = "Checkpoints terdeteksi:"
+listLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+listLabel.Parent = content
+
+local listBox = Instance.new("TextLabel")
+listBox.BackgroundColor3 = Color3.fromRGB(30, 30, 44)
+listBox.Size = UDim2.new(1, 0, 0, 50)
+listBox.Position = UDim2.new(0, 0, 0, 60)
+listBox.Font = Enum.Font.Code
+listBox.TextScaled = true
+listBox.TextXAlignment = Enum.TextXAlignment.Left
+listBox.TextYAlignment = Enum.TextYAlignment.Top
+listBox.TextWrapped = true
+listBox.TextColor3 = Color3.fromRGB(230, 230, 240)
+listBox.Parent = content
+Instance.new("UICorner", listBox).CornerRadius = UDim.new(0, 8)
+
+local toggle = Instance.new("TextButton")
+toggle.Size = UDim2.new(1, 0, 0, 40)
+toggle.Position = UDim2.new(0, 0, 1, -44)
+toggle.Font = Enum.Font.GothamBlack
+toggle.TextScaled = true
+toggle.Text = "Teleport OFF"
+toggle.BackgroundColor3 = Color3.fromRGB(65, 30, 30)
+toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
+toggle.Parent = content
+Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 10)
+
+-- Draggable frame
+do
+    local dragging, dragStart, startPos
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType.Name == "MouseButton1" or input.UserInputType.Name == "Touch" then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    titleBar.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType.Name == "MouseMovement" then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+-- Minimize behavior
+local minimized = false
+minimize.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    content.Visible = not minimized
+    frame.Size = minimized and UDim2.fromOffset(300, 40) or UDim2.fromOffset(300, 180)
+    minimize.Text = minimized and "+" or "—"
+end)
+
+--===== Teleport Logic =====--
+local active = false
+local teleportThread = nil
+local checkpoints = {}
+
+local function updateListLabel()
+    if #checkpoints == 0 then
+        listBox.Text = "Tidak ada (pastikan workspace.Checkpoints berisi 0..8 dan merupakan BasePart)."
+        return
+    end
+    local names = {}
+    for _, cp in ipairs(checkpoints) do
+        table.insert(names, cp.Name)
+    end
+    listBox.Text = table.concat(names, ", ")
+end
+
+local function refreshCheckpoints()
+    checkpoints = collectCheckpoints()
+    updateListLabel()
+end
+
+refreshCheckpoints()
+
+refresh.MouseButton1Click:Connect(function()
+    refreshCheckpoints()
+end)
+
+local function setToggleUI(on)
+    if on then
+        toggle.Text = "Teleport ON"
+        toggle.BackgroundColor3 = Color3.fromRGB(40, 95, 55)
+        toggle.TextColor3 = Color3.fromRGB(230, 255, 230)
+    else
+        toggle.Text = "Teleport OFF"
+        toggle.BackgroundColor3 = Color3.fromRGB(65, 30, 30)
+        toggle.TextColor3 = Color3.fromRGB(255, 235, 235)
+    end
+end
+
+local function teleportLoop()
+    local _, hrp = getCharacter()
+    while active and gui.Parent do
+        if #checkpoints == 0 then
+            refreshCheckpoints()
+        end
+        local interval = safeNumber(intervalBox.Text, 0.5)
+        for _, cp in ipairs(checkpoints) do
+            if not active then break end
+            if cp and cp:IsDescendantOf(workspace) and cp:IsA("BasePart") then
+                -- offset sedikit biar nggak nyangkut di part
+                local pos = cp.Position + Vector3.new(0, 4, 0)
+                pcall(function()
+                    hrp.CFrame = CFrame.new(pos)
+                end)
+            end
+            task.wait(interval)
+        end
+        -- Ulang dari 0 lagi selama toggle masih ON
+    end
+end
+
+toggle.MouseButton1Click:Connect(function()
+    active = not active
+    setToggleUI(active)
+    if active then
+        if not teleportThread or coroutine.status(teleportThread) == "dead" then
+            teleportThread = coroutine.create(teleportLoop)
+        end
+        coroutine.resume(teleportThread)
+    end
+end)
+
+-- Reacquire HRP jika respawn
+LP.CharacterAdded:Connect(function()
+    if active then
+        -- kasih waktu spawn beres
+        task.wait(1)
+        if active then
+            if not teleportThread or coroutine.status(teleportThread) == "dead" then
+                teleportThread = coroutine.create(teleportLoop)
+            end
+            coroutine.resume(teleportThread)
+        end
+    end
+end)
